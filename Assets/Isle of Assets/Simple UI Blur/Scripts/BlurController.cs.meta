@@ -1,0 +1,18 @@
+fileFormatVersion: 2
+guid: 52d704f9ba20c6d4298d0938fdc51572
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 225428
+  packageName: Simple UI Blur
+  packageVersion: 1.0.7
+  assetPath: Assets/Isle of Assets/Simple UI Blur/Scripts/BlurController.cs
+  uploadId: 620733

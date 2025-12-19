@@ -1,0 +1,26 @@
+{
+    "questions": [
+        {
+            "question": "What is 2+2?",
+            "options": [
+                "1",
+                "2",
+                "3",
+                "4"
+            ],
+            "correctAnswer": "4",
+            "isNumerical": true
+        },
+        {
+            "question": "Capital of Spain",
+            "options": [
+                "Madrid",
+                "Paris",
+                "Rome",
+                "London"
+            ],
+            "correctAnswer": "Madrid",
+            "isNumerical": false
+        }
+    ]
+}

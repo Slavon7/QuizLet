@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 3bc3764fd8a8a8446be2dde8609781f9
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 4890085278179872738
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 225428
+  packageName: Simple UI Blur
+  packageVersion: 1.0.7
+  assetPath: Assets/Isle of Assets/Simple UI Blur/Scenes/3D SampleScene/3D SampleSceneSettings.lighting
+  uploadId: 620733

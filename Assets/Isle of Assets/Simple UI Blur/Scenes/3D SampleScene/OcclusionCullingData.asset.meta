@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: c35ac7708c26dca48a6382fc106a2b69
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 0
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 225428
+  packageName: Simple UI Blur
+  packageVersion: 1.0.7
+  assetPath: Assets/Isle of Assets/Simple UI Blur/Scenes/3D SampleScene/OcclusionCullingData.asset
+  uploadId: 620733
