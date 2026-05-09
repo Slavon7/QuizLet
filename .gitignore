@@ -1,4 +1,6 @@
-# Unity folders
+# ======================
+# Unity
+# ======================
 [Ll]ibrary/
 [Tt]emp/
 [Oo]bj/
@@ -7,51 +9,48 @@
 [Ll]ogs/
 [Mm]emoryCaptures/
 
-# User-specific settings
+# User-specific
 [Uu]serSettings/
 
+# ======================
 # IDE / OS
+# ======================
 .vs/
 .vscode/
 .idea/
 *.user
 *.userprefs
 *.suo
-*.tmp
-*.swp
-*.bak
 .DS_Store
 Thumbs.db
 
-# Visual Studio / Rider generated
+# ======================
+# Visual Studio / Rider
+# ======================
 *.csproj
 *.unityproj
 *.sln
 *.suo
 *.pidb
-*.booproj
-*.svd
 *.pdb
 *.mdb
 *.opendb
 *.VC.db
 
-# Unity generated meta for excluded folders is okay (do not ignore *.meta globally!)
-
-# Builds / archives / binaries (не хранить в репо)
+# ======================
+# Archives / binaries
+# ======================
+*.exe
 *.apk
 *.aab
-*.exe
 *.rar
 *.zip
 *.7z
 
-# Keystore / secrets (ВАЖНО)
+# ======================
+# Secrets
+# ======================
 *.keystore
 *.jks
 *.key
 *.pem
-
-# Addressables cache (часто можно игнорировать)
-**/[Aa]ssets/[Aa]ddressable[Aa]ssets[Dd]ata/*/*.bin*
-**/[Aa]ssets/[Aa]ddressable[Aa]ssets[Dd]ata/*/*.json*

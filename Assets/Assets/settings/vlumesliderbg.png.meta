@@ -147,7 +147,8 @@ TextureImporter:
     secondaryTextures: []
     spriteCustomMetadata:
       entries: []
-    nameFileIdTable: {}
+    nameFileIdTable:
+      vlumesliderbg_0: 2491251693825032625
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 

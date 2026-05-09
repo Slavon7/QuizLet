@@ -78,10 +78,20 @@ public class GoogleSheetsQuestionDownloader : MonoBehaviour
 
         if (remoteHash == localHash && File.Exists(cachePath))
         {
-            Debug.Log("Хеш совпал — загружаем вопросы из кеша");
-            string cachedJson = File.ReadAllText(cachePath);
-            LoadQuestionsFromJson(cachedJson);
-            OnQuestionsLoaded?.Invoke(); // Вызов события
+            Debug.Log("Хеш совпал — дешифруем вопросы из кеша");
+            string encryptedJson = File.ReadAllText(cachePath);
+            
+            try 
+            {
+                string decryptedJson = EncryptionUtils.Decrypt(encryptedJson);
+                LoadQuestionsFromJson(decryptedJson);
+                OnQuestionsLoaded?.Invoke();
+            }
+            catch (Exception e)
+            {
+                Debug.LogError("Помилка дешифрування: " + e.Message);
+                // Якщо файл пошкоджено або ключ не підходить — краще видалити кеш і завантажити заново
+            }
             yield break;
         }
 
@@ -137,10 +147,13 @@ public class GoogleSheetsQuestionDownloader : MonoBehaviour
         var wrapper = new QuestionListWrapper { questions = questions };
         string json = JsonUtility.ToJson(wrapper, true);
 
-        File.WriteAllText(cachePath, json);
+        // ШИФРУЄМО ПЕРЕД ЗБЕРЕЖЕННЯМ
+        string encryptedJson = EncryptionUtils.Encrypt(json);
+
+        File.WriteAllText(cachePath, encryptedJson);
         File.WriteAllText(hashPath, hash);
 
-        Debug.Log($"Сохранено {questions.Count} вопросов и хеш {hash} в кеш");
+        Debug.Log("Дані зашифровано та збережено в кеш.");
     }
 
     void LoadQuestionsFromJson(string json)

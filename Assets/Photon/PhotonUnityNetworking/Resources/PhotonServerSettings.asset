@@ -76,6 +76,8 @@ MonoBehaviour:
   - StopSpecificSFXRPC
   - StopTimerSoundRPC
   - SyncCurrencyChange
+  - ReceiveMessage
+  - ReceiveChatMessage
   DisableAutoOpenWizard: 1
   ShowSettings: 1
   DevRegionSetOnce: 1

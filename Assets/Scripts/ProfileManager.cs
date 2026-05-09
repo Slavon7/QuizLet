@@ -2,6 +2,7 @@ using UnityEngine;
 using TMPro;
 using UnityEngine.UI;
 using Photon.Pun;
+using Photon.Realtime;
 using System.Collections;
 using System.Collections.Generic;
 using Hashtable = ExitGames.Client.Photon.Hashtable;
@@ -16,19 +17,27 @@ public class ProfileManager : MonoBehaviour
     [Header("Level & XP UI")]
     public Slider experienceSlider;
     public TextMeshProUGUI levelText;
-    public TextMeshProUGUI experienceText; // Новое поле для отображения опыта
+    public TextMeshProUGUI experienceText;
 
     [Header("Level Up Rewards")]
-    public GameObject levelUpPanel; // Панель с наградой за уровень
-    public TextMeshProUGUI levelUpText; // "Новый уровень!"
-    public TextMeshProUGUI gemRewardText; // Текст с количеством гемов
-    public float rewardAnimationDuration = 2f; // Длительность анимации счетчика
+    public GameObject levelUpPanel;
+    public TextMeshProUGUI levelUpText;
+    public TextMeshProUGUI gemRewardText;
+    public float rewardAnimationDuration = 2f;
+
+    [Header("Cups UI")]
+    public TextMeshProUGUI cupsText;
+
+    // === Cups storage ===
+    public const string CUPS_KEY = "PlayerCups"; // один ключ на весь проект
+    private int currentCups = 0;
 
     public static ProfileManager Instance { get; private set; }
 
     private string currentNickname;
     private Sprite currentAvatar;
     private int currentAvatarIndex = 0;
+
     private string[] defaultNicknames = new string[]
     {
         "SpeedyFox", "MightyBear", "SilentWolf", "CleverOwl", "BraveLion",
@@ -41,18 +50,24 @@ public class ProfileManager : MonoBehaviour
 
     private int pendingGemReward = 0;
 
+    public System.Action<int> OnCupsChanged;
+
     void Awake()
     {
         // Singleton pattern
         if (Instance == null)
         {
             Instance = this;
+            DontDestroyOnLoad(gameObject);
         }
         else
         {
             Destroy(gameObject);
             return;
         }
+
+        // Если хочешь, чтобы не уничтожался при смене сцен
+        // DontDestroyOnLoad(gameObject);
 
         if (PlayerPrefs.HasKey("AvatarIndex"))
         {
@@ -62,12 +77,14 @@ public class ProfileManager : MonoBehaviour
 
         InitializeDefaultAvatars();
 
-        // Загружаем уровень и опыт из PlayerPrefs (если есть)
+        // Level / XP
         if (PlayerPrefs.HasKey("CurrentLevel"))
             currentLevel = PlayerPrefs.GetInt("CurrentLevel");
-
         if (PlayerPrefs.HasKey("CurrentXP"))
             currentXP = PlayerPrefs.GetInt("CurrentXP");
+
+        // Cups
+        currentCups = PlayerPrefs.GetInt(CUPS_KEY, 0);
     }
 
     void Start()
@@ -80,6 +97,7 @@ public class ProfileManager : MonoBehaviour
 
         ValidateCurrentAvatar();
 
+        // Nickname
         if (PlayerPrefs.HasKey("Nickname"))
         {
             currentNickname = PlayerPrefs.GetString("Nickname");
@@ -91,13 +109,14 @@ public class ProfileManager : MonoBehaviour
         }
 
         PhotonNetwork.NickName = currentNickname;
-        nicknameInputField.text = currentNickname;
+        if (nicknameInputField != null)
+            nicknameInputField.text = currentNickname;
 
+        // Avatar
         if (PlayerPrefs.HasKey("AvatarIndex"))
         {
             currentAvatarIndex = PlayerPrefs.GetInt("AvatarIndex");
             currentAvatar = AvatarManager.Instance.GetAvatar(currentAvatarIndex);
-            SyncPlayerCustomProperties();
         }
         else
         {
@@ -106,128 +125,184 @@ public class ProfileManager : MonoBehaviour
             PlayerPrefs.SetInt("AvatarIndex", 0);
         }
 
-        // Скрываем панель награды изначально
+        // UI reward panel
         if (levelUpPanel != null)
-        {
             levelUpPanel.SetActive(false);
-        }
 
-        if (AvatarManager.Instance != null)
-        {
-            Debug.Log($"Количество аватаров в AvatarManager: {AvatarManager.Instance.GetAvatarCount()}");
-            
-            for (int i = 0; i < AvatarManager.Instance.GetAvatarCount(); i++)
-            {
-                var sprite = AvatarManager.Instance.GetAvatar(i);
-                var data = AvatarManager.Instance.GetAvatarData(i);
-                
-                Debug.Log($"Индекс {i}: Спрайт = {(sprite ? sprite.name : "NULL")}, " +
-                        $"Данные = {(data != null ? data.name : "NULL")}");
-            }
-        }
-
+        // Подтягиваем опыт, который могли записать перед выходом из комнаты
         AddPendingExperience();
+
+        // Обновляем UI сразу
         UpdateProfileUI();
-    }
 
-    /// <summary>
-    /// Инициализация дефолтных аватаров при первом запуске
-    /// </summary>
-    private void InitializeDefaultAvatars()
-    {
-        if (!PlayerPrefs.HasKey("AvatarsInitialized"))
-        {
-            if (AvatarManager.Instance != null)
-            {
-                // Разблокируем все дефолтные аватары
-                var allAvatars = AvatarManager.Instance.GetAllAvatarData();
-                for (int i = 0; i < allAvatars.Length; i++)
-                {
-                    if (allAvatars[i] != null && allAvatars[i].isDefault)
-                    {
-                        AvatarManager.Instance.UnlockAvatar(i);
-                    }
-                }
-
-                PlayerPrefs.SetInt("AvatarsInitialized", 1);
-                PlayerPrefs.Save();
-                Debug.Log("Default avatars initialized");
-            }
-        }
+        // И сразу синхронизируем свойства (если Photon уже подключен)
+        SyncPlayerCustomProperties();
     }
 
     void Update()
     {
         if (Input.GetKeyDown(KeyCode.L))
         {
-            AddTestLevel(1); // Добавляем +1 уровень по нажатию L
+            AddTestLevel(1);
+        }
+
+        // НОВЫЙ БЛОК: Нажми 'C' в игре, чтобы добавить 30 кубков
+        if (Input.GetKeyDown(KeyCode.C))
+        {
+            AddCups(30);
+            Debug.Log("Тест: Добавлено 30 кубков. Теперь всего: " + GetCups());
         }
     }
 
     public void OnEnable()
     {
-        // Подписываемся на событие успешного подключения к серверу
-        PhotonNetwork.NetworkingClient.StateChanged += NetworkingClientOnStateChanged;
+        if (PhotonNetwork.NetworkingClient != null)
+            PhotonNetwork.NetworkingClient.StateChanged += NetworkingClientOnStateChanged;
     }
 
     public void OnDisable()
     {
-        // Отписываемся при уничтожении объекта
-        PhotonNetwork.NetworkingClient.StateChanged -= NetworkingClientOnStateChanged;
+        if (PhotonNetwork.NetworkingClient != null)
+            PhotonNetwork.NetworkingClient.StateChanged -= NetworkingClientOnStateChanged;
     }
 
-    private void NetworkingClientOnStateChanged(Photon.Realtime.ClientState previousState, Photon.Realtime.ClientState currentState)
+    private void NetworkingClientOnStateChanged(ClientState previousState, ClientState currentState)
     {
-        // Когда соединение успешно установлено, синхронизируем свойства
-        if (currentState == Photon.Realtime.ClientState.JoinedLobby ||
-            currentState == Photon.Realtime.ClientState.Joined)
+        if (currentState == ClientState.JoinedLobby || currentState == ClientState.Joined)
         {
+            // Если в Photon уже есть Cups — можно подтянуть (опционально).
+            // Я оставил "локальный источник истины" (PlayerPrefs).
+            // Если хочешь наоборот — скажи, сделаю.
+
             SyncPlayerCustomProperties();
         }
     }
 
+    void OnLevelWasLoaded(int level)
+    {
+        UpdateProfileUI();
+    }
+
+    public void BindUI(
+        TMP_InputField nicknameInput,
+        TextMeshProUGUI nicknameText,
+        Image avatarImg,
+        Slider xpSlider,
+        TextMeshProUGUI lvlText,
+        TextMeshProUGUI xpText,
+        TextMeshProUGUI cupsTxt,
+        GameObject lvlUpPanelObj,
+        TextMeshProUGUI lvlUpTxt,
+        TextMeshProUGUI gemTxt
+    )
+    {
+        nicknameInputField = nicknameInput;
+        currentNicknameText = nicknameText;
+        avatarImage = avatarImg;
+
+        experienceSlider = xpSlider;
+        levelText = lvlText;
+        experienceText = xpText;
+
+        cupsText = cupsTxt;
+
+        levelUpPanel = lvlUpPanelObj;
+        levelUpText = lvlUpTxt;
+        gemRewardText = gemTxt;
+
+        // когда UI появился — сразу обновим
+        UpdateProfileUI();
+    }
+
+    public void RefreshUI()
+    {
+        UpdateProfileUI();
+    }
+
     private void SyncPlayerCustomProperties()
     {
-        if (PhotonNetwork.IsConnected)
+        if (!PhotonNetwork.IsConnected)
         {
-            // Синхронизируем как никнейм, так и индекс аватара
-            Hashtable props = new Hashtable();
-            props.Add("Nickname", currentNickname);
-            props.Add("AvatarIndex", currentAvatarIndex);
+            Debug.LogWarning("SyncPlayerCustomProperties: не подключен к Photon");
+            return;
+        }
 
-            PhotonNetwork.LocalPlayer.SetCustomProperties(props);
-            Debug.Log($"SyncPlayerCustomProperties: установлены свойства - Nickname: {currentNickname}, AvatarIndex: {currentAvatarIndex}");
-        }
-        else
+        Hashtable props = new Hashtable
         {
-            Debug.LogWarning("SyncPlayerCustomProperties: не подключен к серверу Photon, нельзя синхронизировать свойства");
-        }
+            { "Nickname", currentNickname },
+            { "AvatarIndex", currentAvatarIndex },
+            { "Cups", currentCups },
+            { "LeagueIndex", GetCurrentLeagueIndex() }
+        };
+
+        PhotonNetwork.LocalPlayer.SetCustomProperties(props);
+        Debug.Log($"Sync props: Nickname={currentNickname}, AvatarIndex={currentAvatarIndex}, Cups={currentCups}");
     }
+
+    // =========================
+    // Cups API (Единственный способ менять кубки)
+    // =========================
+
+    public int GetCups() => currentCups;
+
+    public int GetCurrentLeagueIndex()
+    {
+        if (PathManager.Instance != null)
+            return PathManager.Instance.GetLeagueIndex(currentCups);
+        return Mathf.Clamp(currentCups / 500, 0, 5);
+    }
+
+    public LeagueData GetCurrentLeague()
+    {
+        return PathManager.Instance?.GetLeague(currentCups);
+    }
+
+    public void SetCups(int newCups)
+    {
+        currentCups = Mathf.Max(0, newCups);
+
+        PlayerPrefs.SetInt(CUPS_KEY, currentCups);
+        PlayerPrefs.Save();
+
+        UpdateProfileUI();
+        SyncPlayerCustomProperties();
+
+        OnCupsChanged?.Invoke(currentCups);
+    }
+
+    public void AddCups(int delta)
+    {
+        SetCups(currentCups + delta);
+    }
+
+    // =========================
+    // Nickname / Avatar
+    // =========================
 
     public void ChangeNickname()
     {
+        if (nicknameInputField == null) return;
+
         string newNickname = nicknameInputField.text;
 
         if (!string.IsNullOrEmpty(newNickname))
         {
             currentNickname = newNickname;
             PlayerPrefs.SetString("Nickname", currentNickname);
-            PhotonNetwork.NickName = currentNickname; // Обновляем никнейм в Photon
+            PhotonNetwork.NickName = currentNickname;
 
-            SyncPlayerCustomProperties(); // Используем общий метод синхронизации
-
+            SyncPlayerCustomProperties();
             UpdateProfileUI();
             Debug.Log("Никнейм изменён на: " + currentNickname);
         }
         else
         {
-            Debug.LogWarning("Никнейм не может быть пустым!");
+            Debug.LogWarning("Никнейм не може бути поронжім!");
         }
     }
 
     public void ChangeAvatar(int avatarIndex)
     {
-        // Проверяем валидность через AvatarManager
         if (AvatarManager.Instance == null)
         {
             Debug.LogError("AvatarManager недоступен!");
@@ -235,22 +310,19 @@ public class ProfileManager : MonoBehaviour
         }
 
         int maxAvatars = AvatarManager.Instance.GetAvatarCount();
-        if (avatarIndex >= 0 && avatarIndex < maxAvatars)
+        if (avatarIndex < 0 || avatarIndex >= maxAvatars)
         {
-            currentAvatarIndex = avatarIndex;
-            currentAvatar = AvatarManager.Instance.GetAvatar(avatarIndex);
-            PlayerPrefs.SetInt("AvatarIndex", avatarIndex);
-
-            // Синхронизируем кастомные свойства
-            SyncPlayerCustomProperties();
-
-            UpdateProfileUI();
-            Debug.Log("Аватар изменён на индекс: " + avatarIndex);
+            Debug.LogWarning($"Некорректный индекс аватарки: {avatarIndex}. Доступно: {maxAvatars}");
+            return;
         }
-        else
-        {
-            Debug.LogWarning($"Некорректный индекс аватарки: {avatarIndex}. Доступно аватарок: {maxAvatars}");
-        }
+
+        currentAvatarIndex = avatarIndex;
+        currentAvatar = AvatarManager.Instance.GetAvatar(avatarIndex);
+        PlayerPrefs.SetInt("AvatarIndex", avatarIndex);
+
+        SyncPlayerCustomProperties();
+        UpdateProfileUI();
+        Debug.Log("Аватар изменён на индекс: " + avatarIndex);
     }
 
     private string GenerateRandomNickname()
@@ -259,32 +331,16 @@ public class ProfileManager : MonoBehaviour
         return defaultNicknames[randomIndex];
     }
 
-    /// <summary>
-    /// Получить текущий индекс аватара (для совместимости с новой системой)
-    /// </summary>
-    public int GetCurrentAvatarIndex()
-    {
-        return currentAvatarIndex;
-    }
+    public int GetCurrentAvatarIndex() => currentAvatarIndex;
 
-    /// <summary>
-    /// Обновленный метод NextAvatar с проверкой разблокировки
-    /// </summary>
-    public void NextAvatar()
-    {
-        NextUnlockedAvatar();
-    }
-
-    /// <summary>
-    /// Обновленный метод PreviousAvatar с проверкой разблокировки
-    /// </summary>
-    public void PreviousAvatar()
-    {
-        PreviousUnlockedAvatar();
-    }
+    // =========================
+    // XP / Level
+    // =========================
 
     private void AddPendingExperience()
     {
+        if (!PhotonNetwork.IsConnected || PhotonNetwork.LocalPlayer == null) return;
+
         if (PhotonNetwork.LocalPlayer.CustomProperties.TryGetValue("ExperienceToAdd", out object expObj))
         {
             int expToAdd = (int)expObj;
@@ -293,9 +349,10 @@ public class ProfileManager : MonoBehaviour
             {
                 AddExperience(expToAdd);
 
-                // После добавления обнуляем опыт для добавления
-                Hashtable resetProps = new Hashtable();
-                resetProps["ExperienceToAdd"] = 0;
+                Hashtable resetProps = new Hashtable
+                {
+                    { "ExperienceToAdd", 0 }
+                };
                 PhotonNetwork.LocalPlayer.SetCustomProperties(resetProps);
 
                 Debug.Log($"Добавлено {expToAdd} опыта из CustomProperties после загрузки лобби");
@@ -316,14 +373,12 @@ public class ProfileManager : MonoBehaviour
             Debug.Log($"Поздравляем! Новый уровень: {currentLevel}");
         }
 
-        // Сохраняем данные
         PlayerPrefs.SetInt("CurrentLevel", currentLevel);
         PlayerPrefs.SetInt("CurrentXP", currentXP);
         PlayerPrefs.Save();
 
         UpdateProfileUI();
 
-        // Если получили новые уровни, показываем награду
         if (levelsGained > 0)
         {
             ShowLevelUpReward(levelsGained);
@@ -332,14 +387,12 @@ public class ProfileManager : MonoBehaviour
 
     private IEnumerator AnimateGemCounter(int targetAmount)
     {
-        // Получаем компонент эффектов, если есть
         RewardAnimationEffects effects = gemRewardText?.GetComponent<RewardAnimationEffects>();
 
         if (effects != null)
         {
-            int fromValue = 0; // начальное значение счетчика (можно изменить при необходимости)
+            int fromValue = 0;
 
-            // Используем продвинутую анимацию с эффектами
             yield return StartCoroutine(effects.AnimateCounterWithSteps(
                 fromValue,
                 targetAmount,
@@ -347,17 +400,13 @@ public class ProfileManager : MonoBehaviour
                 (currentValue) =>
                 {
                     if (gemRewardText != null)
-                    {
                         gemRewardText.text = $"+{currentValue} гемов";
-                    }
                 }));
 
-            // Запускаем цветовую анимацию
             StartCoroutine(effects.AnimateTextColor());
         }
         else
         {
-            // Базовая анимация без эффектов
             float elapsedTime = 0f;
             int currentDisplayed = 0;
 
@@ -366,45 +415,34 @@ public class ProfileManager : MonoBehaviour
                 elapsedTime += Time.deltaTime;
                 float progress = elapsedTime / rewardAnimationDuration;
 
-                // Используем плавную кривую для более приятной анимации
                 float smoothProgress = Mathf.SmoothStep(0f, 1f, progress);
                 currentDisplayed = Mathf.RoundToInt(targetAmount * smoothProgress);
 
                 if (gemRewardText != null)
-                {
                     gemRewardText.text = $"+{currentDisplayed} гемов";
-                }
 
                 yield return null;
             }
 
-            // Убеждаемся, что показываем финальное значение
             if (gemRewardText != null)
-            {
                 gemRewardText.text = $"+{targetAmount} гемов";
-            }
         }
     }
 
     public void AddTestLevel(int amount)
     {
-        int targetXP = 5000 - currentXP; // Сколько не хватает до следующего уровня
-        AddExperience(targetXP + 1); // Добавляем чуть больше, чтобы точно повысился уровень
+        int targetXP = 5000 - currentXP;
+        AddExperience(targetXP + 1);
         Debug.Log($"[ЧИТ] Повышен уровень на {amount}. Текущий уровень: {currentLevel}");
     }
 
     private void ShowLevelUpReward(int levelsGained)
     {
-        // Вычисляем награду (50 гемов за уровень)
         pendingGemReward = levelsGained * 50;
 
-        // Показываем панель награды (если есть UI)
         if (levelUpPanel != null)
-        {
             levelUpPanel.SetActive(true);
-        }
 
-        // Обновляем текст уровня
         if (levelUpText != null)
         {
             string text = levelsGained == 1 ? "Новый уровень!" : $"Новые уровни! (+{levelsGained})";
@@ -412,18 +450,12 @@ public class ProfileManager : MonoBehaviour
 
             RewardAnimationEffects levelEffects = levelUpText.GetComponent<RewardAnimationEffects>();
             if (levelEffects != null)
-            {
                 levelEffects.PlayLevelUpAnimation();
-            }
         }
 
-        // Запускаем анимацию гемов
         if (gemRewardText != null)
-        {
             StartCoroutine(AnimateGemCounter(pendingGemReward));
-        }
 
-        // Добавляем гемы сразу
         if (CurrencyManager.Instance != null)
         {
             CurrencyManager.Instance.AddGems(pendingGemReward, $"Награда за повышение уровня до {currentLevel}");
@@ -434,24 +466,18 @@ public class ProfileManager : MonoBehaviour
             Debug.LogWarning("CurrencyManager не найден! Невозможно выдать гемы.");
         }
 
+        StartCoroutine(HideRewardPanelDelayed(1.5f, pendingGemReward));
         pendingGemReward = 0;
-
-        // Автоматически скрываем панель награды через несколько секунд
-        StartCoroutine(HideRewardPanelDelayed(1.5f));
     }
 
-    private IEnumerator HideRewardPanelDelayed(float delay)
+    private IEnumerator HideRewardPanelDelayed(float delay, int rewardShown)
     {
         yield return new WaitForSeconds(delay);
 
         if (levelUpPanel != null)
-        {
             levelUpPanel.SetActive(false);
-        }
 
-        pendingGemReward = 0;
-
-        Debug.Log($"Получена награда: {pendingGemReward} гемов за повышение уровня!");
+        Debug.Log($"Получена награда: {rewardShown} гемов за повышение уровня!");
     }
 
     private void UpdateProfileUI()
@@ -468,66 +494,63 @@ public class ProfileManager : MonoBehaviour
             experienceSlider.value = currentXP;
         }
 
+        if (cupsText != null)
+            cupsText.text = currentCups.ToString();
+
         if (levelText != null)
             levelText.text = $"{currentLevel}";
 
-        // Обновляем текст опыта в формате "текущий/максимум" в сотнях
         if (experienceText != null)
         {
-            // Делим на 100 для отображения в сотнях
             int displayCurrentXP = Mathf.RoundToInt(currentXP / 10f);
             int displayMaxXP = Mathf.RoundToInt(xpToLevelUp / 10f);
-
             experienceText.text = $"{displayCurrentXP}/{displayMaxXP}";
         }
     }
 
-    // Дополнительные методы для получения данных об опыте
-    public int GetCurrentXP()
-    {
-        return currentXP;
-    }
+    // XP getters
+    public int GetCurrentXP() => currentXP;
+    public int GetXPToLevelUp() => xpToLevelUp;
+    public int GetCurrentLevel() => currentLevel;
 
-    public int GetXPToLevelUp()
-    {
-        return xpToLevelUp;
-    }
+    public float GetXPProgress() => (float)currentXP / xpToLevelUp;
 
-    public int GetCurrentLevel()
-    {
-        return currentLevel;
-    }
+    public int GetDisplayCurrentXP() => Mathf.RoundToInt(currentXP / 10f);
+    public int GetDisplayMaxXP() => Mathf.RoundToInt(xpToLevelUp / 10f);
 
-    // Метод для получения процента заполнения опыта (полезно для анимаций)
-    public float GetXPProgress()
-    {
-        return (float)currentXP / xpToLevelUp;
-    }
-
-    // Методы для получения отображаемых значений в сотнях
-    public int GetDisplayCurrentXP()
-    {
-        return Mathf.RoundToInt(currentXP / 10f);
-    }
-
-    public int GetDisplayMaxXP()
-    {
-        return Mathf.RoundToInt(xpToLevelUp / 10f);
-    }
-
-    // Метод для получения текста опыта в нужном формате
     public string GetXPDisplayText()
     {
         int displayCurrent = GetDisplayCurrentXP();
         int displayMax = GetDisplayMaxXP();
         return $"{displayCurrent}/{displayMax}";
     }
-    
-        #region Avatar System Integration
-    
-    /// <summary>
-    /// Безопасное изменение аватара с проверкой разблокировки
-    /// </summary>
+
+    // =========================
+    // Avatar system integration (твой блок)
+    // =========================
+
+    private void InitializeDefaultAvatars()
+    {
+        if (!PlayerPrefs.HasKey("AvatarsInitialized"))
+        {
+            if (AvatarManager.Instance != null)
+            {
+                var allAvatars = AvatarManager.Instance.GetAllAvatarData();
+                for (int i = 0; i < allAvatars.Length; i++)
+                {
+                    if (allAvatars[i] != null && allAvatars[i].isDefault)
+                    {
+                        AvatarManager.Instance.UnlockAvatar(i);
+                    }
+                }
+
+                PlayerPrefs.SetInt("AvatarsInitialized", 1);
+                PlayerPrefs.Save();
+                Debug.Log("Default avatars initialized");
+            }
+        }
+    }
+
     public bool TryChangeAvatar(int avatarIndex)
     {
         if (AvatarManager.Instance == null)
@@ -536,38 +559,28 @@ public class ProfileManager : MonoBehaviour
             return false;
         }
 
-        // Проверяем, разблокирован ли аватар
         if (!AvatarManager.Instance.IsValidUnlockedAvatar(avatarIndex))
         {
             Debug.LogWarning($"Аватар {avatarIndex} не разблокирован или недоступен!");
             return false;
         }
 
-        // Используем существующий метод ChangeAvatar
         ChangeAvatar(avatarIndex);
         return true;
     }
-    
-    /// <summary>
-    /// Получить список доступных аватаров для UI
-    /// </summary>
+
     public List<int> GetAvailableAvatarIndices()
     {
         if (AvatarManager.Instance == null) return new List<int> { 0 };
-        
         return AvatarManager.Instance.GetUnlockedAvatarIndices();
     }
-    
-    /// <summary>
-    /// Проверить и исправить текущий аватар если он не разблокирован
-    /// </summary>
+
     private void ValidateCurrentAvatar()
     {
         if (AvatarManager.Instance == null) return;
-        
+
         Debug.Log($"Проверяем аватар индекс {currentAvatarIndex}");
-        
-        // Проверяем что индекс в допустимых пределах
+
         int maxAvatars = AvatarManager.Instance.GetAvatarCount();
         if (currentAvatarIndex >= maxAvatars)
         {
@@ -575,53 +588,49 @@ public class ProfileManager : MonoBehaviour
             currentAvatarIndex = 0;
             PlayerPrefs.SetInt("AvatarIndex", 0);
         }
-        
-        // Проверяем что аватар разблокирован
+
         if (!AvatarManager.Instance.IsValidUnlockedAvatar(currentAvatarIndex))
         {
             int firstUnlockedIndex = AvatarManager.Instance.GetFirstUnlockedAvatarIndex();
             Debug.Log($"Текущий аватар {currentAvatarIndex} недоступен. Переключаемся на {firstUnlockedIndex}");
             ChangeAvatar(firstUnlockedIndex);
         }
-        
-        // Выводим финальную информацию
+
         var currentSprite = AvatarManager.Instance.GetAvatar(currentAvatarIndex);
         var currentData = AvatarManager.Instance.GetAvatarData(currentAvatarIndex);
         Debug.Log($"Итоговый аватар: индекс {currentAvatarIndex}, " +
-                $"спрайт {(currentSprite ? currentSprite.name : "NULL")}, " +
-                $"данные {(currentData != null ? currentData.name : "NULL")}");
+                  $"спрайт {(currentSprite ? currentSprite.name : "NULL")}, " +
+                  $"данные {(currentData != null ? currentData.name : "NULL")}");
     }
-    
-    /// <summary>
-    /// Обновленная навигация по аватарам (только разблокированные)
-    /// </summary>
+
+    public void NextAvatar() => NextUnlockedAvatar();
+    public void PreviousAvatar() => PreviousUnlockedAvatar();
+
     public void NextUnlockedAvatar()
     {
         if (AvatarManager.Instance == null) return;
-        
+
         var unlockedIndices = AvatarManager.Instance.GetUnlockedAvatarIndices();
-        if (unlockedIndices.Count <= 1) return; // Нет смысла переключать, если аватар один
-        
+        if (unlockedIndices.Count <= 1) return;
+
         int currentIndex = unlockedIndices.IndexOf(currentAvatarIndex);
         if (currentIndex == -1) currentIndex = 0;
-        
+
         int nextIndex = (currentIndex + 1) % unlockedIndices.Count;
         TryChangeAvatar(unlockedIndices[nextIndex]);
     }
-    
+
     public void PreviousUnlockedAvatar()
     {
         if (AvatarManager.Instance == null) return;
-        
+
         var unlockedIndices = AvatarManager.Instance.GetUnlockedAvatarIndices();
         if (unlockedIndices.Count <= 1) return;
-        
+
         int currentIndex = unlockedIndices.IndexOf(currentAvatarIndex);
         if (currentIndex == -1) currentIndex = 0;
-        
+
         int prevIndex = (currentIndex - 1 + unlockedIndices.Count) % unlockedIndices.Count;
         TryChangeAvatar(unlockedIndices[prevIndex]);
     }
-    
-    #endregion
 }

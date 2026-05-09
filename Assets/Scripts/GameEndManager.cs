@@ -9,7 +9,6 @@ using System.Collections.Generic;
 
 public class GameEndManager : MonoBehaviourPunCallbacks
 {
-    [SerializeField] private PlayerScoreDisplay scoreDisplay;
     [SerializeField] private ParticleSystem winnerParticles;
     [SerializeField] private GameObject gameEndPanel;
     [SerializeField] private TMP_Text winnerText;
@@ -17,6 +16,7 @@ public class GameEndManager : MonoBehaviourPunCallbacks
     [SerializeField] private BlurController blurController;
     [SerializeField] private GameOverUIController gameOverUI;
     private Dictionary<int, int> _correctAnswers = new Dictionary<int, int>();
+    private int _lastCupsChange = 0;
 
     private void Start()
     {
@@ -48,16 +48,6 @@ public class GameEndManager : MonoBehaviourPunCallbacks
             {
                 topPlayers.Add(kvp.Key);
             }
-        }
-
-        // Показать финальный лидерборд
-        if (scoreDisplay != null)
-        {
-            scoreDisplay.ShowEndGameLeaderboard();
-        }
-        else
-        {
-            Debug.LogError("PlayerScoreDisplay не назначен в GameEndManager!");
         }
 
         gameEndPanel.SetActive(true);
@@ -97,10 +87,27 @@ public class GameEndManager : MonoBehaviourPunCallbacks
                 Debug.LogWarning("Не назначено Particle System для победителя");
         }
 
+        _lastCupsChange = AwardCupsToLocalPlayer(scores);
+        _lastCupsChange += 5; // AwardTestCups
+        AwardTestCups();
+
         // --- НАЧИСЛЕНИЕ ОПЫТА ---
         AwardGemsToLocalPlayer(scores, correctAnswers);
         AwardExperienceToLocalPlayer(scores);
         ShowGameOverSection(scores);
+    }
+
+    private void AwardTestCups()
+    {
+        if (ProfileManager.Instance != null)
+        {
+            ProfileManager.Instance.AddCups(5);
+            Debug.Log("[TEST] Начислено +5 кубков после игры");
+        }
+        else
+        {
+            Debug.LogWarning("[TEST] ProfileManager.Instance не найден");
+        }
     }
 
     private void AwardGemsToLocalPlayer(Dictionary<int, int> scores, Dictionary<int, int> correctAnswers)
@@ -145,37 +152,71 @@ public class GameEndManager : MonoBehaviourPunCallbacks
         int currentXP = PlayerPrefs.GetInt("CurrentXP", 0);
         int currentLevel = PlayerPrefs.GetInt("CurrentLevel", 1);
         int xpToLevelUp = 5000; // если динамически — вынеси
-        int correctAnswers = 0;
-        int gemsEarned = 0;
-        if (_correctAnswers.TryGetValue(localId, out correctAnswers))
+        _correctAnswers.TryGetValue(localId, out int correctAnswers);
+        int placeBonus = place switch
         {
-            gemsEarned = correctAnswers + (place switch
-            {
-                1 => 5,
-                2 => 3,
-                3 => 2,
-                <= 8 => 1,
-                _ => 0
-            });
-        }
+            1 => 5,
+            2 => 3,
+            3 => 2,
+            <= 8 => 1,
+            _ => 0
+        };
+        int gemsEarned = correctAnswers + placeBonus;
 
         if (gameOverUI != null)
-            gameOverUI.ShowInfo(place, xpGained, currentXP, xpToLevelUp, currentLevel, gemsEarned);
+            gameOverUI.ShowInfo(place, xpGained, currentXP, xpToLevelUp, currentLevel, gemsEarned, _lastCupsChange);
     }
 
 
-    /// <summary>
-    /// Альтернативный метод для показа финального лидерборда без определения победителя
-    /// (если нужно показать лидерборд отдельно)
-    /// </summary>
-    public void ShowFinalLeaderboard()
+    private int AwardCupsToLocalPlayer(Dictionary<int, int> scores)
     {
-        if (scoreDisplay != null)
+        int playerCount = PhotonNetwork.CurrentRoom.PlayerCount;
+
+        int localId = PhotonNetwork.LocalPlayer.ActorNumber;
+        if (!scores.TryGetValue(localId, out int myScore)) return 0;
+
+        List<int> sortedScores = new List<int>(scores.Values);
+        sortedScores.Sort((a, b) => b.CompareTo(a));
+
+        int myRank = sortedScores.IndexOf(myScore) + 1;
+        int cupsChange = CalculateTrophyChange(playerCount, myRank);
+
+        if (ProfileManager.Instance != null)
         {
-            scoreDisplay.ShowEndGameLeaderboard();
+            ProfileManager.Instance.AddCups(cupsChange);
+            Debug.Log($"[Trophies] Players={playerCount}, Rank={myRank}, Change={cupsChange}, TotalNow={ProfileManager.Instance.GetCups()}");
         }
+        else
+        {
+            Debug.LogWarning("ProfileManager.Instance не найден — кубки не начислены.");
+        }
+
+        return cupsChange;
     }
 
+    // 🔥 Формула расчета (Та самая Python логика переведенная в C#)
+    private int CalculateTrophyChange(int totalPlayers, int rank)
+    {
+        // Базовая ставка: для 8 игроков = 50.
+        // (totalPlayers / 8f) дает коэффициент.
+        float maxRewardFloat = 50f * ((float)totalPlayers / 8f);
+        int maxReward = Mathf.RoundToInt(maxRewardFloat);
+
+        // Спец. условие для дуэли (чтобы было интереснее чем +12)
+        if (totalPlayers == 2) maxReward = 15;
+
+        // Если игрок всего 1 (ошибка логики), возвращаем 0
+        if (totalPlayers < 2) return 0;
+
+        // Шаг изменения
+        float step = (maxReward * 2f) / (totalPlayers - 1);
+
+        // Формула: Max - (Место - 1) * Шаг
+        float change = maxReward - (rank - 1) * step;
+
+        return Mathf.RoundToInt(change);
+    }
+    
     private void AwardExperienceToLocalPlayer(Dictionary<int, int> scores)
     {
         int localActorNumber = PhotonNetwork.LocalPlayer.ActorNumber;
@@ -192,17 +233,6 @@ public class GameEndManager : MonoBehaviourPunCallbacks
         else
         {
             Debug.LogWarning("Очки локального игрока не найдены в словаре scores");
-        }
-    }
-
-    /// <summary>
-    /// Метод для возврата к игровому лидерборду (если нужен)
-    /// </summary>
-    public void ShowGameplayLeaderboard()
-    {
-        if (scoreDisplay != null)
-        {
-            scoreDisplay.ShowGameplayLeaderboard();
         }
     }
 

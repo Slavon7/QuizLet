@@ -2,31 +2,51 @@ using UnityEngine;
 using TMPro;
 using UnityEngine.UI;
 using System.Collections;
+using System.Collections.Generic;
+using Photon.Pun;
 
 public class GameOverUIController : MonoBehaviour
 {
-    [SerializeField] private Image placeImage; // новая иконка для места
-    [SerializeField] private Sprite[] medalSprites; // массив медалей: 0 = 1-е место, 1 = 2-е и т.д.
-    
+    [Header("Place")]
+    [SerializeField] private Image placeImage;
+    [SerializeField] private Sprite[] medalSprites;
+
+    [Header("XP")]
     [SerializeField] private TMP_Text expText;
     [SerializeField] private Slider levelSlider;
     [SerializeField] private TMP_Text levelText;
+
+    [Header("Rewards")]
     [SerializeField] private TMP_Text gemsEarnedText;
+    [SerializeField] private TMP_Text trophiesEarnedText;
+
+    [Header("Player")]
+    [SerializeField] private Image avatarImage;
+    [SerializeField] private TMP_Text nicknameText;
+
+    [Header("League")]
+    [SerializeField] private Image leagueImage;
+    [SerializeField] private TMP_Text leagueNameText;
+    [SerializeField] private List<LeagueData> leagues;
+    [SerializeField] private int trophiesPerLeague = 500;
 
     private int _currentXP;
     private int _xpGained;
     private int _xpToLevelUp;
     private int _currentLevel;
 
-    public void ShowInfo(int place, int xpGained, int currentXP, int xpToLevelUp, int level, int gemsEarned)
+    public void ShowInfo(int place, int xpGained, int currentXP, int xpToLevelUp, int level, int gemsEarned, int trophiesEarned = 0)
     {
         int clampedPlace = Mathf.Clamp(place, 1, 8);
         placeImage.sprite = medalSprites[clampedPlace - 1];
 
-        expText.text = $"+{xpGained} XP";
-        levelSlider.maxValue = xpToLevelUp;
-        levelText.text = $"LEVEL {level}";
-        levelSlider.value = currentXP;
+        expText.text = $"+{xpGained}";
+        if (levelSlider != null)
+        {
+            levelSlider.maxValue = xpToLevelUp;
+            levelSlider.value = currentXP;
+        }
+        if (levelText != null) levelText.text = $"LEVEL {level}";
 
         _currentXP = currentXP;
         _xpGained = xpGained;
@@ -34,7 +54,36 @@ public class GameOverUIController : MonoBehaviour
         _currentLevel = level;
 
         if (gemsEarnedText != null)
-            gemsEarnedText.text = $"+{gemsEarned} 💎";
+            gemsEarnedText.text = $"+{gemsEarned}";
+
+        if (trophiesEarnedText != null)
+        {
+            string prefix = trophiesEarned >= 0 ? "+" : "";
+            trophiesEarnedText.text = $"{prefix}{trophiesEarned}";
+        }
+
+        Debug.Log($"[GameOverUI] place={place} xp={xpGained} gems={gemsEarned} trophies={trophiesEarned}");
+
+        if (ProfileManager.Instance != null)
+        {
+            if (avatarImage != null && AvatarManager.Instance != null)
+            {
+                Sprite avatar = AvatarManager.Instance.GetAvatar(ProfileManager.Instance.GetCurrentAvatarIndex());
+                if (avatar != null) avatarImage.sprite = avatar;
+            }
+
+            if (nicknameText != null)
+                nicknameText.text = PhotonNetwork.LocalPlayer.NickName;
+        }
+
+        if (leagues != null && leagues.Count > 0 && trophiesPerLeague > 0)
+        {
+            int cups = ProfileManager.Instance != null ? ProfileManager.Instance.GetCups() : 0;
+            int idx = Mathf.Clamp(cups / trophiesPerLeague, 0, leagues.Count - 1);
+            LeagueData league = leagues[idx];
+            if (leagueImage != null) leagueImage.sprite = league.leagueIcon;
+            if (leagueNameText != null) leagueNameText.text = league.leagueName;
+        }
     }
 
     public void PlaySliderAnimation()
@@ -73,15 +122,15 @@ public class GameOverUIController : MonoBehaviour
                 {
                     elapsed += Time.deltaTime;
                     float t = Mathf.Clamp01(elapsed / animationDuration);
-                    levelSlider.value = Mathf.Lerp(startVal, endVal, t);
+                    if (levelSlider != null) levelSlider.value = Mathf.Lerp(startVal, endVal, t);
                     yield return null;
                 }
 
                 currentLevel++;
-                levelText.text = $"LEVEL {currentLevel}";
+                if (levelText != null) levelText.text = $"LEVEL {currentLevel}";
                 currentXP = 0;
                 targetXP -= nextLevelXP;
-                levelSlider.value = 0;
+                if (levelSlider != null) levelSlider.value = 0;
             }
             else
             {
@@ -93,7 +142,7 @@ public class GameOverUIController : MonoBehaviour
                 {
                     elapsed += Time.deltaTime;
                     float t = Mathf.Clamp01(elapsed / animationDuration);
-                    levelSlider.value = Mathf.Lerp(startVal, endVal, t);
+                    if (levelSlider != null) levelSlider.value = Mathf.Lerp(startVal, endVal, t);
                     yield return null;
                 }
 
@@ -103,7 +152,7 @@ public class GameOverUIController : MonoBehaviour
 
         _currentXP = currentXP;
         _currentLevel = currentLevel;
-        levelSlider.value = currentXP;
-        levelText.text = $"LEVEL {_currentLevel}";
+        if (levelSlider != null) levelSlider.value = currentXP;
+        if (levelText != null) levelText.text = $"LEVEL {_currentLevel}";
     }
 }

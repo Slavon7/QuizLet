@@ -29,6 +29,9 @@ public class QuizManager : MonoBehaviourPunCallbacks
     [SerializeField] private int maxQuestions = 2;
     [SerializeField] private float answerRevealTime = 2f;
 
+    [Header("Chat")]
+    [SerializeField] private ChatUI chatUI;
+
     private bool hasPlayedFinalSecondsSound = false;
     
     [SerializeField] private PlayerScoreDisplay playerScoreDisplay;
@@ -798,7 +801,7 @@ public class QuizManager : MonoBehaviourPunCallbacks
             scoreText.text = "Очки: " + newScore;
         }
 
-        playerScoreDisplay.UpdateScoreDisplay(allPlayerScores);
+        playerScoreDisplay?.UpdateScoreDisplay(allPlayerScores);
     }
 
     private void NextQuestion()
@@ -962,5 +965,25 @@ public class QuizManager : MonoBehaviourPunCallbacks
     public bool CanAcceptAnswers()
     {
         return canAcceptAnswers;
+    }
+
+    // Публичный метод — вызывается из ChatUI при нажатии кнопки
+    public void SendChatMessage(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return;
+
+        var local = PhotonNetwork.LocalPlayer;
+        int avatarIndex = local.CustomProperties.ContainsKey("AvatarIndex")
+            ? (int)local.CustomProperties["AvatarIndex"]
+            : 0;
+
+        photonView.RPC(nameof(ReceiveChatMessage), RpcTarget.All,
+            local.NickName, text.Trim(), avatarIndex);
+    }
+
+    [PunRPC]
+    private void ReceiveChatMessage(string nickName, string text, int avatarIndex)
+    {
+        chatUI.AddMessage(nickName, text, avatarIndex);
     }
 }
